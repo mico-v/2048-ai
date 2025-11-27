@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2048 AI - WebAssembly Edition</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .game-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            max-width: 500px;
+            width: 100%;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .title {
+            font-size: 48px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .scores-container {
+            display: flex;
+            gap: 10px;
+        }
+
+        .score-box {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 10px;
+            text-align: center;
+            min-width: 80px;
+        }
+
+        .score-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            opacity: 0.8;
+        }
+
+        .score-value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .game-board {
+            background: #bbada0;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+        }
+
+        .cell {
+            aspect-ratio: 1;
+            background: rgba(238, 228, 218, 0.35);
+            border-radius: 8px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 32px;
+            font-weight: bold;
+            color: #776e65;
+            transition: all 0.15s ease;
+        }
+
+        .cell[data-value="2"] { background: #eee4da; }
+        .cell[data-value="4"] { background: #ede0c8; }
+        .cell[data-value="8"] { background: #f2b179; color: white; }
+        .cell[data-value="16"] { background: #f59563; color: white; }
+        .cell[data-value="32"] { background: #f67c5f; color: white; }
+        .cell[data-value="64"] { background: #f65e3b; color: white; }
+        .cell[data-value="128"] { background: #edcf72; color: white; font-size: 28px; }
+        .cell[data-value="256"] { background: #edcc61; color: white; font-size: 28px; }
+        .cell[data-value="512"] { background: #edc850; color: white; font-size: 28px; }
+        .cell[data-value="1024"] { background: #edc53f; color: white; font-size: 24px; }
+        .cell[data-value="2048"] { background: #edc22e; color: white; font-size: 24px; }
+        .cell[data-value="4096"] { background: #3c3a32; color: white; font-size: 24px; }
+        .cell[data-value="8192"] { background: #3c3a32; color: white; font-size: 24px; }
+        .cell[data-value="16384"] { background: #3c3a32; color: white; font-size: 20px; }
+        .cell[data-value="32768"] { background: #3c3a32; color: white; font-size: 20px; }
+
+        .cell.new-tile {
+            animation: pop-in 0.2s ease;
+        }
+
+        .cell.merged {
+            animation: merge 0.2s ease;
+        }
+
+        @keyframes pop-in {
+            0% { transform: scale(0); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        @keyframes merge {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            flex: 1;
+            min-width: 120px;
+            padding: 15px 20px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-new {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+
+        .btn-ai {
+            background: linear-gradient(135deg, #11998e, #38ef7d);
+            color: white;
+        }
+
+        .btn-auto {
+            background: linear-gradient(135deg, #f093fb, #f5576c);
+            color: white;
+        }
+
+        .btn-auto.active {
+            background: linear-gradient(135deg, #f5576c, #f093fb);
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(245, 87, 108, 0.4); }
+            50% { box-shadow: 0 0 0 10px rgba(245, 87, 108, 0); }
+        }
+
+        .instructions {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+            font-size: 14px;
+            color: #6c757d;
+        }
+
+        .instructions h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .instructions p {
+            margin-bottom: 5px;
+        }
+
+        .key {
+            display: inline-block;
+            background: #e9ecef;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-weight: bold;
+        }
+
+        .game-over-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .game-over-overlay.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .game-over-text {
+            font-size: 36px;
+            font-weight: bold;
+            color: #776e65;
+            margin-bottom: 20px;
+        }
+
+        .win-text {
+            color: #edcc61;
+        }
+
+        .loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            color: white;
+            font-size: 24px;
+        }
+
+        .loading.hidden {
+            display: none;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .ai-thinking {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px 25px;
+            border-radius: 10px;
+            font-size: 16px;
+            display: none;
+        }
+
+        .ai-thinking.show {
+            display: block;
+        }
+
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            font-size: 14px;
+            color: #6c757d;
+        }
+
+        .speed-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .speed-control label {
+            font-size: 14px;
+            color: #6c757d;
+        }
+
+        .speed-control input[type="range"] {
+            flex: 1;
+            height: 6px;
+            border-radius: 3px;
+            appearance: none;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            outline: none;
+        }
+
+        .speed-control input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: white;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <div>Loading AI Module...</div>
+    </div>
+
+    <div class="game-container">
+        <div class="header">
+            <div class="title">2048</div>
+            <div class="scores-container">
+                <div class="score-box">
+                    <div class="score-label">Score</div>
+                    <div class="score-value" id="score">0</div>
+                </div>
+                <div class="score-box">
+                    <div class="score-label">Best</div>
+                    <div class="score-value" id="best">0</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="status-bar">
+            <span id="moves-count">Moves: 0</span>
+            <span id="max-tile">Max: 0</span>
+        </div>
+
+        <div class="game-board" id="game-board">
+            <div class="grid-container" id="grid">
+                <!-- Cells will be generated by JavaScript -->
+            </div>
+            <div class="game-over-overlay" id="game-over">
+                <div class="game-over-text" id="game-over-text">Game Over!</div>
+                <button class="btn btn-new" onclick="newGame()">Try Again</button>
+            </div>
+            <div class="ai-thinking" id="ai-thinking">AI is thinking...</div>
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-new" onclick="newGame()">New Game</button>
+            <button class="btn btn-ai" id="btn-ai" onclick="aiMove()">AI Move</button>
+            <button class="btn btn-auto" id="btn-auto" onclick="toggleAutoplay()">Autoplay</button>
+        </div>
+
+        <div class="speed-control">
+            <label>Speed:</label>
+            <input type="range" id="speed-slider" min="50" max="500" value="200">
+            <span id="speed-value">200ms</span>
+        </div>
+
+        <div class="instructions">
+            <h3>How to Play</h3>
+            <p>Use <span class="key">↑</span> <span class="key">↓</span> <span class="key">←</span> <span class="key">→</span> or <span class="key">W</span><span class="key">A</span><span class="key">S</span><span class="key">D</span> to move tiles.</p>
+            <p>Click <strong>AI Move</strong> for the AI to suggest the next best move.</p>
+            <p>Click <strong>Autoplay</strong> to let the AI play automatically!</p>
+        </div>
+    </div>
+
+    <script src="2048.js"></script>
+    <script>
+        // Game state
+        let board = new Uint32Array(16); // 4x4 grid with tile values (as powers of 2)
+        let score = 0;
+        let best = parseInt(localStorage.getItem('2048-best') || '0');
+        let moves = 0;
+        let isAutoplay = false;
+        let autoplayInterval = null;
+        let wasmModule = null;
+        let gameOver = false;
+
+        // WASM functions
+        let initTables, executeMoveHi, executeMoveLo, findBestMove, getMaxTile, hasValidMoves;
+
+        // Speed control
+        let autoplaySpeed = 200;
+
+        // Initialize
+        async function init() {
+            try {
+                // Load WASM module
+                wasmModule = await Module2048();
+                
+                // Get WASM functions
+                initTables = wasmModule.cwrap('init_tables', null, []);
+                executeMoveLo = wasmModule.cwrap('execute_move_lo', 'number', ['number', 'number', 'number']);
+                executeMoveHi = wasmModule.cwrap('execute_move_hi', 'number', ['number', 'number', 'number']);
+                findBestMove = wasmModule.cwrap('find_best_move_split', 'number', ['number', 'number']);
+                getMaxTile = wasmModule.cwrap('get_max_tile', 'number', ['number', 'number']);
+                hasValidMoves = wasmModule.cwrap('has_valid_moves', 'number', ['number', 'number']);
+
+                // Initialize lookup tables
+                initTables();
+
+                // Hide loading screen
+                document.getElementById('loading').classList.add('hidden');
+
+                // Create grid cells
+                const grid = document.getElementById('grid');
+                for (let i = 0; i < 16; i++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.id = `cell-${i}`;
+                    grid.appendChild(cell);
+                }
+
+                // Setup keyboard controls
+                document.addEventListener('keydown', handleKeydown);
+
+                // Setup speed slider
+                const speedSlider = document.getElementById('speed-slider');
+                speedSlider.addEventListener('input', (e) => {
+                    autoplaySpeed = parseInt(e.target.value);
+                    document.getElementById('speed-value').textContent = autoplaySpeed + 'ms';
+                    if (isAutoplay) {
+                        clearInterval(autoplayInterval);
+                        autoplayInterval = setInterval(doAutoplayMove, autoplaySpeed);
+                    }
+                });
+
+                // Update best score display
+                document.getElementById('best').textContent = best;
+
+                // Start new game
+                newGame();
+            } catch (error) {
+                console.error('Failed to initialize WASM module:', error);
+                document.getElementById('loading').innerHTML = '<div style="color: red;">Failed to load AI module. Please refresh.</div>';
+            }
+        }
+
+        function newGame() {
+            board = new Uint32Array(16);
+            score = 0;
+            moves = 0;
+            gameOver = false;
+            
+            // Stop autoplay if running
+            if (isAutoplay) {
+                toggleAutoplay();
+            }
+
+            // Add two random tiles
+            addRandomTile();
+            addRandomTile();
+
+            // Update display
+            updateDisplay();
+            
+            // Hide game over overlay
+            document.getElementById('game-over').classList.remove('show');
+        }
+
+        function addRandomTile() {
+            const emptyCells = [];
+            for (let i = 0; i < 16; i++) {
+                if (board[i] === 0) {
+                    emptyCells.push(i);
+                }
+            }
+            
+            if (emptyCells.length > 0) {
+                const index = emptyCells[Math.floor(Math.random() * emptyCells.length)];
+                board[index] = Math.random() < 0.9 ? 1 : 2; // 1 = 2^1 = 2, 2 = 2^2 = 4
+                
+                // Animate new tile
+                setTimeout(() => {
+                    const cell = document.getElementById(`cell-${index}`);
+                    cell.classList.add('new-tile');
+                    setTimeout(() => cell.classList.remove('new-tile'), 200);
+                }, 50);
+            }
+        }
+
+        function boardToWasm() {
+            // Convert board array to 64-bit WASM format (two 32-bit integers)
+            let lo = 0;
+            let hi = 0;
+            
+            for (let i = 0; i < 8; i++) {
+                lo |= (board[i] & 0xf) << (i * 4);
+            }
+            for (let i = 0; i < 8; i++) {
+                hi |= (board[i + 8] & 0xf) << (i * 4);
+            }
+            
+            return { lo, hi };
+        }
+
+        function wasmToBoard(lo, hi) {
+            // Convert WASM format back to board array
+            const newBoard = new Uint32Array(16);
+            
+            for (let i = 0; i < 8; i++) {
+                newBoard[i] = (lo >> (i * 4)) & 0xf;
+            }
+            for (let i = 0; i < 8; i++) {
+                newBoard[i + 8] = (hi >> (i * 4)) & 0xf;
+            }
+            
+            return newBoard;
+        }
+
+        function executeMove(direction) {
+            // 0=up, 1=down, 2=left, 3=right
+            const { lo, hi } = boardToWasm();
+            const newLo = executeMoveLo(direction, lo, hi);
+            const newHi = executeMoveHi(direction, lo, hi);
+            return wasmToBoard(newLo, newHi);
+        }
+
+        function move(direction) {
+            if (gameOver) return false;
+
+            const oldBoard = board.slice();
+            const newBoard = executeMove(direction);
+            
+            // Check if move changed the board
+            let changed = false;
+            for (let i = 0; i < 16; i++) {
+                if (newBoard[i] !== oldBoard[i]) {
+                    changed = true;
+                    break;
+                }
+            }
+
+            if (changed) {
+                // Calculate score from merges
+                let mergeScore = 0;
+                const mergedCells = [];
+                
+                for (let i = 0; i < 16; i++) {
+                    if (newBoard[i] > oldBoard[i] && newBoard[i] > 0) {
+                        // A merge happened - tile value increased
+                        mergeScore += (1 << newBoard[i]);
+                        mergedCells.push(i);
+                    }
+                }
+                
+                board = newBoard;
+                score += mergeScore;
+                moves++;
+                
+                // Update best score
+                if (score > best) {
+                    best = score;
+                    localStorage.setItem('2048-best', best.toString());
+                }
+
+                // Add animation for merged cells
+                updateDisplay();
+                mergedCells.forEach(i => {
+                    const cell = document.getElementById(`cell-${i}`);
+                    cell.classList.add('merged');
+                    setTimeout(() => cell.classList.remove('merged'), 200);
+                });
+
+                // Add new random tile
+                addRandomTile();
+
+                // Check for game over
+                checkGameOver();
+
+                return true;
+            }
+
+            return false;
+        }
+
+        function checkGameOver() {
+            const { lo, hi } = boardToWasm();
+            if (!hasValidMoves(lo, hi)) {
+                gameOver = true;
+                
+                // Stop autoplay
+                if (isAutoplay) {
+                    toggleAutoplay();
+                }
+
+                // Show game over overlay
+                const overlay = document.getElementById('game-over');
+                const text = document.getElementById('game-over-text');
+                
+                // Check if won (reached 2048 or higher)
+                const maxTile = getMaxTile(lo, hi);
+                if (maxTile >= 11) { // 2^11 = 2048
+                    text.textContent = 'You Win!';
+                    text.classList.add('win-text');
+                } else {
+                    text.textContent = 'Game Over!';
+                    text.classList.remove('win-text');
+                }
+                
+                overlay.classList.add('show');
+            }
+        }
+
+        function updateDisplay() {
+            // Update score
+            document.getElementById('score').textContent = score;
+            document.getElementById('best').textContent = best;
+            document.getElementById('moves-count').textContent = `Moves: ${moves}`;
+
+            // Update max tile
+            const { lo, hi } = boardToWasm();
+            const maxTileExp = getMaxTile(lo, hi);
+            const maxTileValue = maxTileExp > 0 ? (1 << maxTileExp) : 0;
+            document.getElementById('max-tile').textContent = `Max: ${maxTileValue}`;
+
+            // Update grid
+            for (let i = 0; i < 16; i++) {
+                const cell = document.getElementById(`cell-${i}`);
+                const value = board[i] > 0 ? (1 << board[i]) : 0;
+                
+                cell.textContent = value > 0 ? value : '';
+                cell.setAttribute('data-value', value);
+            }
+        }
+
+        function handleKeydown(e) {
+            if (gameOver) return;
+
+            let direction = -1;
+            
+            switch (e.key) {
+                case 'ArrowUp':
+                case 'w':
+                case 'W':
+                    direction = 0;
+                    break;
+                case 'ArrowDown':
+                case 's':
+                case 'S':
+                    direction = 1;
+                    break;
+                case 'ArrowLeft':
+                case 'a':
+                case 'A':
+                    direction = 2;
+                    break;
+                case 'ArrowRight':
+                case 'd':
+                case 'D':
+                    direction = 3;
+                    break;
+            }
+
+            if (direction >= 0) {
+                e.preventDefault();
+                move(direction);
+            }
+        }
+
+        async function aiMove() {
+            if (gameOver) return;
+
+            // Show thinking indicator
+            const thinkingDiv = document.getElementById('ai-thinking');
+            thinkingDiv.classList.add('show');
+
+            // Use setTimeout to allow UI to update
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            const { lo, hi } = boardToWasm();
+            const bestMove = findBestMove(lo, hi);
+            
+            thinkingDiv.classList.remove('show');
+
+            if (bestMove >= 0) {
+                move(bestMove);
+            }
+        }
+
+        function doAutoplayMove() {
+            if (gameOver) {
+                toggleAutoplay();
+                return;
+            }
+
+            const { lo, hi } = boardToWasm();
+            const bestMove = findBestMove(lo, hi);
+            
+            if (bestMove >= 0) {
+                move(bestMove);
+            } else {
+                toggleAutoplay();
+            }
+        }
+
+        function toggleAutoplay() {
+            isAutoplay = !isAutoplay;
+            const btn = document.getElementById('btn-auto');
+            const aiBtn = document.getElementById('btn-ai');
+            
+            if (isAutoplay) {
+                btn.textContent = 'Stop';
+                btn.classList.add('active');
+                aiBtn.disabled = true;
+                autoplayInterval = setInterval(doAutoplayMove, autoplaySpeed);
+            } else {
+                btn.textContent = 'Autoplay';
+                btn.classList.remove('active');
+                aiBtn.disabled = false;
+                if (autoplayInterval) {
+                    clearInterval(autoplayInterval);
+                    autoplayInterval = null;
+                }
+            }
+        }
+
+        // Start the game
+        init();
+    </script>
+</body>
+</html>
